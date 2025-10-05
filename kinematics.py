@@ -20,10 +20,10 @@ class TwoDofArm:
         return(x,y)
     
     # convert given (x,y) position to joint angles(deg)
-    def inverse(x, y):
-        a = math.acos((self.l1^2-self.l2^2+x^2+y^2)/(2*self.l1*math.sqrt(x^2+y^2)))
+    def inverse(self, x, y):
+        a = math.acos((self.l1**2-self.l2**2+x**2+y**2)/(2*self.l1*math.sqrt(x**2+y**2)))
         self.r1 = math.atan2(y,x) + a
-        self.r2 = math.acos((self.l1^2+self.l2^2-x^2-y^2)/(2*self.l1*self.l2))
+        self.r2 = math.acos((self.l1**2+self.l2**2-x**2-y**2)/(2*self.l1*self.l2))
         d1 = self.r1*180/math.pi
         d2 = self.r2*180/math.pi
         return(d1, d2)
