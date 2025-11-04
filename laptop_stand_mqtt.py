@@ -6,15 +6,13 @@ import secrets
 import neopixel
 import json
 from machine import Pin
-import 
+import servo
 
 class MQTTDevice:
     def __init__(self):
         self.SSID = secrets.SSID
         self.PASSWORD = secrets.PWD
 
-        #Neopixel intialize
-        self.np = neopixel.NeoPixel(Pin(15), 2)
 
         self.entered_time = 0
         # MQTT settings
@@ -24,39 +22,26 @@ class MQTTDevice:
         self.MQTT_PASSWORD = secrets.mqtt_password 
         self.CLIENT_ID = "houston"
         self.TOPIC_PUB = "/COM"
+        
+        # Servo intialize
+        self.servo1 = servo.Servo(4)
+        self.servoAngle = 90;
+        self.servo1.write_angle(servoAngle)
+        
+    def move_servo(self, increment):
+        print(increment)
+        newAngle = self.servoAngle + increment
+        if newAngle >= 0 and newAngle <= 180:
+            self.servoAngle = newAngle
+        elif newAngle < 0:
+            self.servoAngle = 0
+            print("can't turn further")
+        elif newAngle > 180:
+            self.servoAngle = 180
+            print("can't turn further")
 
-        self.button1 = Pin(34, Pin.IN, Pin.PULL_UP)
-        self.button1.irq(trigger = Pin.IRQ_RISING, handler = self.D34_pressed)
-        self.button2 = Pin(35, Pin.IN, Pin.PULL_UP)
-        self.button2.irq(trigger = Pin.IRQ_RISING, handler = self.D35_pressed)
-   
-    def D34_pressed(self, p):
-        # debounce filter 
-        now_time = time.ticks_ms()
-        if(now_time - self.entered_time < 200):
-            return
-        self.entered_time = now_time
+        self.servo1.write_angle(self.servoAngle)
         
-        json_str = json.dumps({"type":"button", "sound":"happy"})
-        self.client.publish(self.TOPIC_PUB, json_str)
-        print("D34 was pressed")
-        
-    def D35_pressed(self, p):
-        # debounce filter 
-        now_time = time.ticks_ms()
-        if(now_time - self.entered_time < 200):
-            return
-        self.entered_time = now_time
-        
-        json_str = json.dumps({"type":"button", "sound":"sad"})
-        self.client.publish(self.TOPIC_PUB, json_str)
-        print("D35 was pressed")
-        
-    def move_servo(self, which_servo, angle):
-        print(which_servo, angle)
-        
-    def make_sound(self, which_sound):
-        print(which_sound)
        
     def connect_wifi(self):
         self.wlan = network.WLAN(network.STA_IF)
@@ -88,14 +73,8 @@ class MQTTDevice:
         print(f"Received message on topic '{topic.decode()}' : '{msg.decode()}'")
         try:
             if(json_str["type"]=="servo"):
-                which_servo = json_str["which_servo"]
-                angle = int(json_str["angle"])
-                self.move_servo(which_servo, angle)
-            elif(json_str["type"]=="button"):
-                which_sound = json_str["sound"]
-                self.make_sound(which_sound)
-        except Exception as e:
-            print(f"Error: {e}")
+                increment = int(json_str["angle"])
+                self.move_servo(increment)
 
     def mqtt_connect(self):
         try:
@@ -125,16 +104,11 @@ mqtt_obj = MQTTDevice()
 if mqtt_obj.connect_wifi():
     client = mqtt_obj.mqtt_connect()
     mqtt_obj.subscribe("/COM")
-'''
-which_servo = input("which servo (l/r): ")
-angle = input("what angle (0-180): ")
-json_str = json.dumps({"type":"servo", "which_servo":which_servo, "angle":angle})
-client.publish("/COM", json_str)
-'''
+
 while True:
     try:
         client.check_msg()
-        time.sleep(1)
+        time.sleep(0.5)
     except Exception as e:
         print(f"Checking message failed: {e}")
     
