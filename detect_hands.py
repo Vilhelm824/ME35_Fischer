@@ -1,26 +1,15 @@
 # Hand tracking with fingertip trail (macOS-friendly)
 # q = quit | c = clear trail | s = save frame
 import cv2, time, os, json
-import paho.mqtt.client as paho
-from paho import mqtt
 from collections import deque
 
 # ----- MQTT Setup -----
 url = "71b19996472b44ef8901c930925513fd.s1.eu.hivemq.cloud"
-username = "hiveluar"
+username = "hiveular"
 password = "1HiveMind"
 portnumber = 8883
 
-client = paho.Client(
-    callback_api_version=paho.CallbackAPIVersion.VERSION2,
-    client_id="laptop",
-    userdata=None,
-    protocol=paho.MQTTv5
-)
 
-client.tls_set(tls_version=mqtt.client.ssl.PROTOCOL_TLS)
-client.username_pw_set(username, password)
-client.connect(url, portnumber)
 
 
 # ----- Camera setup (macOS: AVFoundation) -----
@@ -88,7 +77,6 @@ while True:
             tip_off_center = (tip.x - 0.5)*2
             angle = int(tip_off_center * 10)
             json_str = json.dumps({"type":"servo", "angle":f"{angle}"})
-            result = client.publish("/COM", json_str, qos=1)
             
             x, y = int(tip.x * w), int(tip.y * h)
             trails[i].append((x, y))
