@@ -2,7 +2,6 @@ import network
 import time
 from umqtt.simple import MQTTClient
 import ssl
-import neopixel
 import json
 from machine import Pin
 import servo
