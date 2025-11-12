@@ -1,1 +1,5 @@
-secrets.py
+./secrets.py
+/ImageProcess/Include
+/ImageProcess/Lib
+/ImageProcess/Scripts
+/ImageProcess/*.mp4
