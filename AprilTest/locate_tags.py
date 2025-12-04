@@ -2,21 +2,10 @@ import cv2
 import numpy as np
 import pyapriltags as apriltag
 
-''' webcam input 
-cap = cv2.VideoCapture(0)
-# Check if the camera opened successfully (Good Practice)
-if not cap.isOpened():
-    raise RuntimeError("Error: Could not open video stream.")
-'''
-color_img = cv2.imread('test2.jpg')
+
+color_img = cv2.imread('test1.jpg')
 # image was too big to see in viewing pane
 color_img = cv2.resize(color_img, (0, 0), fx=0.2, fy=0.2, interpolation=cv2.INTER_AREA)
-
-''' webcam stuff
-ret, color_img = cap.read()
-
-cv2.imshow("image", color_img)
-'''
 
 # make grayscale and hsv images for processing
 img = cv2.cvtColor(color_img, cv2.COLOR_BGR2GRAY)
@@ -52,7 +41,6 @@ ball_point = np.array([0,0], dtype=np.float32)
 tags = detector.detect(img)
 # track the number control tags to make sure they are all detected
 control_tag_count = 0
-
 for tag in tags:
     # find the center of each tag
     Cx = int(tag.center[0])
@@ -82,6 +70,8 @@ for tag in tags:
             robot_points["center"] = tag.center
             robot_points["top"] = top_center
         
+
+
 
 ## ball detection ##
 # Define Color Thresholds for Ping Pong Ball (orange)
