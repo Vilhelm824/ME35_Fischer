@@ -1,7 +1,10 @@
 import cv2
 import numpy as np
 import pyapriltags as apriltag
+import time
 import math
+import json
+import paho.mqtt.client as mqtt
 
 
 # resize image and generate diff color versions for processing
@@ -19,12 +22,12 @@ def process_image(raw_img, scale_factor=0.2):
     return color_img, grayscale_img, hsv_img
 
 
-# update the data arrays for apriltag positions
+# detect the apriltag positions in the image
 def detect_apriltags(grayscale_img, detector, color_img, control_points, robot_points):
 
-    
     tags = detector.detect(grayscale_img)
     control_tag_count = 0
+    robot_found = False
     
     for tag in tags:
         Cx, Cy = int(tag.center[0]), int(tag.center[1])
@@ -39,18 +42,18 @@ def detect_apriltags(grayscale_img, detector, color_img, control_points, robot_p
                 # Robot tag: Find center and orientation point
                 robot_points["center"] = tag.center
                 robot_points["top"] = (tag.corners[0] + tag.corners[1]) / 2
+                robot_found = True
     
-    return control_tag_count
+    return control_tag_count, robot_found
 
 
-# detect ball position by a color threshold
-def detect_ball(hsv_img, color_img, lower_thresh, upper_thresh):
+# detect ball position in image by a color threshold
+def detect_ball(hsv_img, color_img, lower_thresh, upper_thresh, kernel):
     
     ball_point = np.array([-1, -1], dtype=np.float32)
     ball_found = False
     largest_area = 0
     min_radius, max_radius = 5, 50 # Tune these based on image scale
-    kernel = np.ones((5, 5), np.uint8)
 
     mask = cv2.inRange(hsv_img, lower_thresh, upper_thresh)
     mask = cv2.erode(mask, kernel, iterations=1)
@@ -81,8 +84,8 @@ def detect_ball(hsv_img, color_img, lower_thresh, upper_thresh):
     return ball_point, ball_found
 
 
+# apply homography to calculate robot and ball coordinate positions
 def calculate_pose(H, robot_points, ball_point):
-    """Applies Homography and calculates robot orientation."""
     
     # 1. Prepare input array
     input_points = np.array([
@@ -111,12 +114,11 @@ def calculate_pose(H, robot_points, ball_point):
 
 # ------------------------- MAIN EXECUTION -----------------------------
 
-# --- INITIALIZATION ---
 # Define dimensions of autonomous zone
 W = 140   # Target Zone Width (cm)
 H = 140   # Target Zone Height (cm)
 
-# Target Plane Points (undistorted coordinate system)
+# Target Plane Points (undistorted coordinate system of autonomous zone)
 target_points = np.array([
     [0, 0],      # BL tag maps to (0, 0)
     [W, 0],      # BR tag maps to (W, 0)
@@ -124,38 +126,46 @@ target_points = np.array([
     [0, H]       # TL tag maps to (0, H)
 ], dtype=np.float32)
 
-# Initialize control and robot state arrays
+# Initialize control, robot, and ball state arrays
 control_points = np.zeros((4, 2), dtype=np.float32)
 robot_points = {"center": np.zeros(2, dtype=np.float32), 
                 "top": np.zeros(2, dtype=np.float32)}
-
-# Initialize ball point to a known invalid pixel coordinate
-ball_point = np.array([-1, -1], dtype=np.float32)
+ball_point = np.array([0, 0], dtype=np.float32)
 
 # Color Thresholds (Orange Ping Pong Ball) and Kernel
 lower_orange = np.array([0, 100, 100])
 upper_orange = np.array([25, 255, 255])
+kernel = np.ones((5, 5), np.uint8)
+
 detector = apriltag.Detector()
 H = None # Stores the calculated Homography matrix
 
+mqtt_url = "71b19996472b44ef8901c930925513fd.s1.eu.hivemq.cloud"
+mqtt_port = 8883
+mqtt_username = "hiveular"
+mqtt_pass = "1HiveMind"
+
+client = mqtt.Client(mqtt.CallbackAPIVersion.VERSION2)
+client.username_pw_set(username=mqtt_username, password=mqtt_pass)
+client.tls_set()
+client.connect(mqtt_url, mqtt_port)
+client.loop_start()
+
 try:
-    # --- IMAGE ACQUISITION AND PRE-PROCESSING ---
     # In a live system, this would be inside the 'while True' loop
-    raw_color_img = cv2.imread('test1.jpg')
+    raw_color_img = cv2.imread('test2.jpg')
     color_img, grayscale_img, hsv_img = process_image(raw_color_img)
     
-    # dedtect apriltags
-    control_tag_count = detect_apriltags(grayscale_img, detector, color_img, control_points, robot_points)
+    # detect apriltags
+    control_tag_count, robot_found = detect_apriltags(grayscale_img, detector, color_img, control_points, robot_points)
     
     # detect ball
-    ball_point, ball_found = detect_ball(hsv_img, color_img, kernel, lower_orange, upper_orange)
-
-    # --- HOMOGRAPHY CALCULATION (Calibration) ---
+    ball_point, ball_found = detect_ball(hsv_img, color_img, lower_orange, upper_orange, kernel)
 
     if control_tag_count != 4:
         raise RuntimeError(f"Calibration tags missing: Found only {control_tag_count} out of 4.")
     
-    # Calculate H once
+    # Calculate homography matrix H once (camera is stationary)
     if H is None:
         H, mask = cv2.findHomography(control_points, target_points, method=cv2.RANSAC)
         print("Homography Matrix calculated.")
@@ -163,19 +173,24 @@ try:
     if H is None:
         raise RuntimeError("Homography calculation failed")
 
-    # POSE CALCULATION
+    # calculate robot and ball coords with homography
     robot_x, robot_y, robot_theta, ball_x, ball_y = calculate_pose(H, robot_points, ball_point)
 
-    # OUTPUT AND DISPLAY
-    print("\n--- Corrected Robot & Ball State ---")
-    print(f"Robot Position (X, Y): ({robot_x:.2f} cm, {robot_y:.2f} cm)")
-    print(f"Robot Orientation (Degrees): {robot_theta:.2f}°")
-    
-    if ball_found:
-        print(f"Ball Position (X, Y): ({ball_x:.2f} cm, {ball_y:.2f} cm)")
-    else:
-        print("Ball Position: Not Detected.")
+    pos_data_json = json.dumps({
+        'robot_found':robot_found,
+        'robot_x':int(robot_x),
+        'robot_y':int(robot_y),
+        'robot_theta':int(robot_theta),
+        'ball_found':ball_found,
+        'ball_x':int(ball_x),
+        'ball_y':int(ball_y)
+        })
 
+    print("publishing: ", pos_data_json)
+
+    msg_info = client.publish("robot/position", pos_data_json, qos=0)
+
+    # show image with all the overlays of detected tags + ball
     cv2.imshow("Detection Overlay", color_img)
     cv2.waitKey(0)
 
@@ -185,5 +200,6 @@ except FileNotFoundError as e:
     print(f"FATAL ERROR: {e}")
 finally:
     # ensure windows are closed
+    client.loop_stop()
     cv2.destroyAllWindows()
     cv2.waitKey(1)
