@@ -50,10 +50,10 @@ def detect_apriltags(grayscale_img, detector, color_img, control_points, robot_p
 # detect ball position in image by a color threshold
 def detect_ball(hsv_img, color_img, lower_thresh, upper_thresh, kernel):
     
-    ball_point = np.array([-1, -1], dtype=np.float32)
+    ball_point = np.array([-1000, -1000], dtype=np.float32)
     ball_found = False
     largest_area = 0
-    min_radius, max_radius = 5, 50 # Tune these based on image scale
+    min_radius, max_radius = 2, 20 # Tune these based on image scale
 
     mask = cv2.inRange(hsv_img, lower_thresh, upper_thresh)
     mask = cv2.erode(mask, kernel, iterations=1)
@@ -115,8 +115,8 @@ def calculate_pose(H, robot_points, ball_point):
 # ------------------------- MAIN EXECUTION -----------------------------
 
 # Define dimensions of autonomous zone
-W = 140   # Target Zone Width (cm)
-H = 140   # Target Zone Height (cm)
+W = 135   # Target Zone Width (cm)
+H = 139   # Target Zone Height (cm)
 
 # Target Plane Points (undistorted coordinate system of autonomous zone)
 target_points = np.array([
@@ -130,15 +130,17 @@ target_points = np.array([
 control_points = np.zeros((4, 2), dtype=np.float32)
 robot_points = {"center": np.zeros(2, dtype=np.float32), 
                 "top": np.zeros(2, dtype=np.float32)}
-ball_point = np.array([0, 0], dtype=np.float32)
+ball_point = np.array([-1000, -1000], dtype=np.float32)
 
 # Color Thresholds (Orange Ping Pong Ball) and Kernel
-lower_orange = np.array([0, 100, 100])
-upper_orange = np.array([25, 255, 255])
+lower_orange = np.array([0, 50, 50])
+upper_orange = np.array([50, 255, 255])
 kernel = np.ones((5, 5), np.uint8)
 
 detector = apriltag.Detector()
 H = None # Stores the calculated Homography matrix
+
+FRAME_DELAY = 1
 
 mqtt_url = "71b19996472b44ef8901c930925513fd.s1.eu.hivemq.cloud"
 mqtt_port = 8883
@@ -151,48 +153,65 @@ client.tls_set()
 client.connect(mqtt_url, mqtt_port)
 client.loop_start()
 
+cap = cv2.VideoCapture(1)
+
+# Check if camera opened successfully
+if not cap.isOpened():
+    raise RuntimeError("Error: Could not open camera")
+
 try:
-    # In a live system, this would be inside the 'while True' loop
-    raw_color_img = cv2.imread('test2.jpg')
-    color_img, grayscale_img, hsv_img = process_image(raw_color_img)
-    
-    # detect apriltags
-    control_tag_count, robot_found = detect_apriltags(grayscale_img, detector, color_img, control_points, robot_points)
-    
-    # detect ball
-    ball_point, ball_found = detect_ball(hsv_img, color_img, lower_orange, upper_orange, kernel)
+    while True:
+        # raw_color_img = cv2.imread('test2.jpg')
+        ret, raw_color_img = cap.read()
+        if not ret:
+            print("couldn't capture frame, continuing")
+            time.sleep(0.1)
+            continue
+        color_img, grayscale_img, hsv_img = process_image(raw_color_img, scale_factor=0.5)
+        
+        # detect apriltags
+        control_tag_count, robot_found = detect_apriltags(grayscale_img, detector, color_img, control_points, robot_points)
+        
+        # detect ball
+        ball_point, ball_found = detect_ball(hsv_img, color_img, lower_orange, upper_orange, kernel)
 
-    if control_tag_count != 4:
-        raise RuntimeError(f"Calibration tags missing: Found only {control_tag_count} out of 4.")
-    
-    # Calculate homography matrix H once (camera is stationary)
-    if H is None:
-        H, mask = cv2.findHomography(control_points, target_points, method=cv2.RANSAC)
-        print("Homography Matrix calculated.")
-    # if H is still None, there was a problem
-    if H is None:
-        raise RuntimeError("Homography calculation failed")
+        # show image with all the overlays of detected tags + ball
+        cv2.imshow("Detection Overlay", color_img)
 
-    # calculate robot and ball coords with homography
-    robot_x, robot_y, robot_theta, ball_x, ball_y = calculate_pose(H, robot_points, ball_point)
+        if control_tag_count != 4:
+            print(f"Calibration tags missing: Found only {control_tag_count} out of 4.")
+            time.sleep(0.1)
+            continue
+        
+        # Calculate homography matrix H once (camera is stationary)
+        if H is None:
+            H, mask = cv2.findHomography(control_points, target_points, method=cv2.RANSAC)
+            print("Homography Matrix calculated.")
+        # if H is still None, there was a problem
+        if H is None:
+            print("Homography calculation failed")
+            time.sleep(0.1)
+            continue
 
-    pos_data_json = json.dumps({
-        'robot_found':robot_found,
-        'robot_x':int(robot_x),
-        'robot_y':int(robot_y),
-        'robot_theta':int(robot_theta),
-        'ball_found':ball_found,
-        'ball_x':int(ball_x),
-        'ball_y':int(ball_y)
-        })
+        # calculate robot and ball coords with homography
+        robot_x, robot_y, robot_theta, ball_x, ball_y = calculate_pose(H, robot_points, ball_point)
 
-    print("publishing: ", pos_data_json)
+        pos_data_json = json.dumps({
+            'robot_found':robot_found,
+            'robot_x':float(round(robot_x, 2)),
+            'robot_y':float(round(robot_y, 2)),
+            'robot_theta':float(round(robot_theta, 2)),
+            'ball_found':ball_found,
+            'ball_x':float(round(ball_x, 2)),
+            'ball_y':float(round(ball_y, 2))
+            })
 
-    msg_info = client.publish("robot/position", pos_data_json, qos=0)
+        print("publishing: ", pos_data_json)
 
-    # show image with all the overlays of detected tags + ball
-    cv2.imshow("Detection Overlay", color_img)
-    cv2.waitKey(0)
+        msg_info = client.publish("robot/position", pos_data_json, qos=0)
+
+        time.sleep(FRAME_DELAY)
+        cv2.waitKey(1)
 
 except RuntimeError as e:
     print(f"FATAL ERROR: {e}")
