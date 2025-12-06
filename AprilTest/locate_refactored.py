@@ -53,7 +53,7 @@ def detect_ball(hsv_img, color_img, lower_thresh, upper_thresh, kernel):
     ball_point = np.array([-1000, -1000], dtype=np.float32)
     ball_found = False
     largest_area = 0
-    min_radius, max_radius = 2, 20 # Tune these based on image scale
+    min_radius, max_radius = 1, 5 # Tune these based on image scale
 
     mask = cv2.inRange(hsv_img, lower_thresh, upper_thresh)
     mask = cv2.erode(mask, kernel, iterations=1)
@@ -107,8 +107,9 @@ def calculate_pose(H, robot_points, ball_point):
     delta_Y = robot_tag_top_y - robot_y
 
     orientation_radians = np.arctan2(delta_Y, delta_X)
+    orientation_normalized = (orientation_radians + 2*math.pi) % (2*math.pi)
     orientation_degrees = np.degrees(orientation_radians)
-    orientation_normalized = (orientation_degrees + 360) % 360
+    
     
     return robot_x, robot_y, orientation_normalized, ball_x, ball_y
 
@@ -133,14 +134,14 @@ robot_points = {"center": np.zeros(2, dtype=np.float32),
 ball_point = np.array([-1000, -1000], dtype=np.float32)
 
 # Color Thresholds (Orange Ping Pong Ball) and Kernel
-lower_orange = np.array([0, 50, 50])
+lower_orange = np.array([0, 30, 50])
 upper_orange = np.array([50, 255, 255])
 kernel = np.ones((5, 5), np.uint8)
 
 detector = apriltag.Detector()
 H = None # Stores the calculated Homography matrix
 
-FRAME_DELAY = 1
+FRAME_DELAY = 0.2
 
 mqtt_url = "71b19996472b44ef8901c930925513fd.s1.eu.hivemq.cloud"
 mqtt_port = 8883
@@ -150,9 +151,12 @@ mqtt_pass = "1HiveMind"
 client = mqtt.Client(mqtt.CallbackAPIVersion.VERSION2)
 client.username_pw_set(username=mqtt_username, password=mqtt_pass)
 client.tls_set()
+print("connecting to mqtt")
 client.connect(mqtt_url, mqtt_port)
+print("starting mqtt loop")
 client.loop_start()
 
+print("initializing webcam")
 cap = cv2.VideoCapture(1)
 
 # Check if camera opened successfully
@@ -160,6 +164,7 @@ if not cap.isOpened():
     raise RuntimeError("Error: Could not open camera")
 
 try:
+    print("starting processing loop")
     while True:
         # raw_color_img = cv2.imread('test2.jpg')
         ret, raw_color_img = cap.read()
@@ -185,6 +190,7 @@ try:
         
         # Calculate homography matrix H once (camera is stationary)
         if H is None:
+            print("Calculating Homography Matrix")
             H, mask = cv2.findHomography(control_points, target_points, method=cv2.RANSAC)
             print("Homography Matrix calculated.")
         # if H is still None, there was a problem
