@@ -198,12 +198,12 @@ try:
 
         pos_data_json = json.dumps({
             'robot_found':robot_found,
-            'robot_x':float(robot_x, 2),
-            'robot_y':float(robot_y, 2),
-            'robot_theta':float(robot_theta, 2),
+            'robot_x':float(robot_x),
+            'robot_y':float(robot_y),
+            'robot_theta':float(robot_theta),
             'ball_found':ball_found,
-            'ball_x':float(ball_x, 2),
-            'ball_y':float(ball_y, 2)
+            'ball_x':float(ball_x),
+            'ball_y':float(ball_y)
             })
 
         print("publishing: ", pos_data_json)
