@@ -49,13 +49,21 @@ def detect_apriltags(grayscale_img, detector, color_img, control_points, robot_p
 
 # detect ball position in image by a color threshold
 def detect_ball(hsv_img, color_img, lower_thresh, upper_thresh, kernel):
-    
+    # Blue exclusion range  filter this out
+    BLUE_LOWER = np.array([90, 50, 50])      # Covers cyan to deep blue
+    BLUE_UPPER = np.array([130, 255, 255])
+
     ball_point = np.array([-1000, -1000], dtype=np.float32)
     ball_found = False
     largest_area = 0
     min_radius, max_radius = 1, 5 # Tune these based on image scale
 
-    mask = cv2.inRange(hsv_img, lower_thresh, upper_thresh)
+    saturation_mask = cv2.inRange(hsv_img, lower_thresh, upper_thresh)
+    # Create mask for blue
+    blue_mask = cv2.inRange(hsv_img, BLUE_LOWER, BLUE_UPPER)
+    blue_mask = cv2.bitwise_not(blue_mask)  # Invert to exclude blue
+    # Combine masks: keep only saturated colors that are NOT blue
+    mask = cv2.bitwise_and(saturation_mask, blue_mask)
     mask = cv2.erode(mask, kernel, iterations=1)
     mask = cv2.dilate(mask, kernel, iterations=1)
     
@@ -66,9 +74,14 @@ def detect_ball(hsv_img, color_img, lower_thresh, upper_thresh, kernel):
         
         # Calculate radius and center properties (minEnclosingCircle is good for balls)
         ((x, y), radius) = cv2.minEnclosingCircle(c)
-        
+        # Calculate circularity to verify it’s round
+        perimeter = cv2.arcLength(c, True)
+        if perimeter > 0:
+            circularity = 4 * np.pi * area / (perimeter * perimeter)
+        else:
+            circularity = 0
         # Filter by size
-        if min_radius < radius < max_radius: 
+        if (min_radius < radius < max_radius) and circularity > 0.6: 
             M = cv2.moments(c)
             if M["m00"] != 0:
                 cX, cY = int(M["m10"] / M["m00"]), int(M["m01"] / M["m00"])
@@ -80,6 +93,7 @@ def detect_ball(hsv_img, color_img, lower_thresh, upper_thresh, kernel):
                     
                     # Draw detected contour (using the last valid radius)
                     cv2.circle(color_img, (cX, cY), int(radius), (0, 255, 0), 2)
+                    print(circularity)
                     
     return ball_point, ball_found
 
@@ -134,8 +148,8 @@ robot_points = {"center": np.zeros(2, dtype=np.float32),
 ball_point = np.array([-1000, -1000], dtype=np.float32)
 
 # Color Thresholds (Orange Ping Pong Ball) and Kernel
-lower_orange = np.array([0, 30, 50])
-upper_orange = np.array([50, 255, 255])
+lower_orange = np.array([0, 20, 50])
+upper_orange = np.array([179, 255, 255])
 kernel = np.ones((5, 5), np.uint8)
 
 detector = apriltag.Detector()
