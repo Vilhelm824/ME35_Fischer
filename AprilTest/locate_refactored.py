@@ -66,6 +66,8 @@ def detect_ball(hsv_img, color_img, lower_thresh, upper_thresh, kernel):
     mask = cv2.bitwise_and(saturation_mask, blue_mask)
     mask = cv2.erode(mask, kernel, iterations=1)
     mask = cv2.dilate(mask, kernel, iterations=1)
+
+    cv2.imshow("mask", mask)
     
     contours, _ = cv2.findContours(mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
 
@@ -130,8 +132,8 @@ def calculate_pose(H, robot_points, ball_point):
 # ------------------------- MAIN EXECUTION -----------------------------
 
 # Define dimensions of autonomous zone
-W = 135   # Target Zone Width (cm)
-H = 139   # Target Zone Height (cm)
+W = 132   # Target Zone Width (cm)
+H = 135   # Target Zone Height (cm)
 
 # Target Plane Points (undistorted coordinate system of autonomous zone)
 target_points = np.array([
@@ -148,7 +150,7 @@ robot_points = {"center": np.zeros(2, dtype=np.float32),
 ball_point = np.array([-1000, -1000], dtype=np.float32)
 
 # Color Thresholds (Orange Ping Pong Ball) and Kernel
-lower_orange = np.array([0, 20, 50])
+lower_orange = np.array([0, 25, 50])
 upper_orange = np.array([179, 255, 255])
 kernel = np.ones((5, 5), np.uint8)
 
